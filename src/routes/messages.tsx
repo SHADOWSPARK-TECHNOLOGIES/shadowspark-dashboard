@@ -1,0 +1,155 @@
+import { useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
+import { Mail, MessageCircle, Phone, Plus, Search, Send } from "lucide-react";
+import { toast } from "sonner";
+import { AppShell } from "@/components/shell/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ChatThread } from "@/components/ui/chat-thread";
+import { conversations } from "@/lib/mock-data";
+import { initials, relativeTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
+
+export const Route = createFileRoute("/messages")({
+  head: () => ({
+    meta: [
+      { title: "Messages Inbox — ShadowSpark" },
+      {
+        name: "description",
+        content:
+          "One unified inbox for WhatsApp, SMS, Telegram and email conversations with loan applicants.",
+      },
+      { property: "og:title", content: "Messages Inbox — ShadowSpark" },
+      {
+        property: "og:description",
+        content: "Unified omnichannel inbox for lending conversations.",
+      },
+    ],
+  }),
+  component: MessagesPage,
+});
+
+const channels = [
+  { key: "WHATSAPP", label: "WhatsApp", icon: MessageCircle },
+  { key: "SMS", label: "SMS", icon: Phone },
+  { key: "EMAIL", label: "Email", icon: Mail },
+  { key: "TELEGRAM", label: "Telegram", icon: Send },
+] as const;
+
+function MessagesPage() {
+  const [channel, setChannel] = useState<string>("ALL");
+  const [search, setSearch] = useState("");
+  const [activeId, setActiveId] = useState(conversations[0]!.id);
+
+  const list = conversations.filter((conversation) => {
+    if (channel !== "ALL" && conversation.channel !== channel) return false;
+    if (search && !conversation.contactName.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+  const active = conversations.find((conversation) => conversation.id === activeId) ?? list[0];
+
+  return (
+    <AppShell
+      title="Messages"
+      breadcrumb="ShadowSpark / Messages"
+      actions={
+        <Button size="sm" onClick={() => toast.success("New message composer opened")}>
+          <Plus className="size-4" />
+          <span className="hidden sm:inline">New Message</span>
+        </Button>
+      }
+    >
+      <div className="grid h-[calc(100vh-9rem)] grid-cols-1 gap-4 lg:grid-cols-[190px_300px_1fr]">
+        <div className="space-y-1 rounded-xl border border-border bg-card p-2">
+          <button
+            onClick={() => setChannel("ALL")}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+              channel === "ALL" ? "bg-primary/12 text-primary" : "hover:bg-elevated",
+            )}
+          >
+            All channels
+          </button>
+          {channels.map((item) => {
+            const unread = conversations
+              .filter((conversation) => conversation.channel === item.key)
+              .reduce((sum, conversation) => sum + conversation.unread, 0);
+            return (
+              <button
+                key={item.key}
+                onClick={() => setChannel(item.key)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",
+                  channel === item.key ? "bg-primary/12 text-primary" : "hover:bg-elevated",
+                )}
+              >
+                <item.icon className="size-4" />
+                <span className="truncate">{item.label}</span>
+                {unread > 0 ? (
+                  <span className="num ml-auto rounded-md bg-elevated px-1.5 text-[10px]">{unread}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+          <div className="relative border-b border-border p-2.5">
+            <Search className="absolute top-1/2 left-5 size-4 -translate-y-1/2 text-subtle" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search conversations"
+              className="h-9 pl-9"
+            />
+          </div>
+          <ul className="scroll-slim min-h-0 flex-1 divide-y divide-border/60 overflow-y-auto">
+            {list.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  onClick={() => setActiveId(conversation.id)}
+                  className={cn(
+                    "flex w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-elevated/60",
+                    activeId === conversation.id && "bg-elevated/70",
+                  )}
+                >
+                  <span className="num grid size-9 shrink-0 place-items-center rounded-full bg-elevated text-[11px] font-semibold text-primary">
+                    {initials(conversation.contactName)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-sm font-medium">{conversation.contactName}</span>
+                      {conversation.unread > 0 ? (
+                        <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                      ) : null}
+                    </span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {conversation.messages[conversation.messages.length - 1]?.body}
+                    </span>
+                    <span className="num block text-[10px] text-subtle">
+                      {conversation.channel} · {relativeTime(conversation.lastMessageAt)}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+          {active ? (
+            <>
+              <div className="border-b border-border px-4 py-3">
+                <p className="text-sm font-semibold">{active.contactName}</p>
+                <p className="num text-[11px] text-muted-foreground">
+                  {active.contactPhone} · {active.channel}
+                </p>
+              </div>
+              <ChatThread messages={active.messages} defaultChannel={active.channel} />
+            </>
+          ) : null}
+        </div>
+      </div>
+    </AppShell>
+  );
+}
