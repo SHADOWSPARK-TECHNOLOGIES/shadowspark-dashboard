@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { currentUser, tenant } from "@/lib/mock-data";
+import { useTenantProfileQuery } from "@/lib/backend-api";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -27,6 +28,9 @@ export const Route = createFileRoute("/settings")({
 });
 
 function SettingsPage() {
+  const tenantQuery = useTenantProfileQuery();
+  const liveTenant = tenantQuery.data;
+
   return (
     <AppShell title="Settings" breadcrumb="ShadowSpark / Settings">
       <div className="grid max-w-4xl grid-cols-1 gap-4 lg:grid-cols-2">
@@ -35,7 +39,7 @@ function SettingsPage() {
           <div className="space-y-3">
             <div>
               <Label className="text-xs text-muted-foreground">Organisation</Label>
-              <Input defaultValue={tenant.name} className="mt-1" />
+              <Input defaultValue={liveTenant?.name ?? tenant.name} className="mt-1" />
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Operations lead</Label>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Mail, MessageCircle, Phone, Plus, Search, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -6,9 +6,14 @@ import { AppShell } from "@/components/shell/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatThread } from "@/components/ui/chat-thread";
-import { conversations } from "@/lib/mock-data";
 import { initials, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  normalizeBackendConversation,
+  useConversationMessagesQuery,
+  useConversationsQuery,
+} from "@/lib/backend-api";
+import type { Message } from "@/types";
 
 export const Route = createFileRoute("/messages")({
   head: () => ({
@@ -37,16 +42,52 @@ const channels = [
 ] as const;
 
 function MessagesPage() {
+  const conversationsQuery = useConversationsQuery();
+  const conversations = useMemo(
+    () => (conversationsQuery.data ?? []).map(normalizeBackendConversation),
+    [conversationsQuery.data],
+  );
   const [channel, setChannel] = useState<string>("ALL");
   const [search, setSearch] = useState("");
-  const [activeId, setActiveId] = useState(conversations[0]!.id);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeId && conversations[0]) {
+      setActiveId(conversations[0].id);
+    }
+  }, [activeId, conversations]);
+
+  const activeConversation =
+    conversations.find((conversation) => conversation.id === activeId) ?? conversations[0] ?? null;
+  const activeMessagesQuery = useConversationMessagesQuery(
+    activeConversation?.id.split(":")[0] ?? null,
+    activeConversation?.channel ?? null,
+  );
+  const activeMessages: Message[] = useMemo(
+    () =>
+      activeMessagesQuery.data?.map((message, index) => ({
+        id: message.id,
+        channel: activeConversation?.channel ?? "WHATSAPP",
+        direction: (message as { direction?: "INBOUND" | "OUTBOUND" }).direction ??
+          (index % 2 === 0 ? "INBOUND" : "OUTBOUND"),
+        from: (message as { from?: string }).from ?? activeConversation?.contactPhone ?? "",
+        to: (message as { to?: string }).to ?? activeConversation?.contactPhone ?? "",
+        body:
+          (message as { body?: string; content?: string }).body ??
+          (message as { body?: string; content?: string }).content ??
+          "",
+        status: (message as { status?: Message["status"] }).status ?? "DELIVERED",
+        createdAt: message.createdAt,
+      })) ?? [],
+    [activeMessagesQuery.data, activeConversation],
+  );
 
   const list = conversations.filter((conversation) => {
     if (channel !== "ALL" && conversation.channel !== channel) return false;
     if (search && !conversation.contactName.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
-  const active = conversations.find((conversation) => conversation.id === activeId) ?? list[0];
+  const active = activeConversation ?? list[0] ?? null;
 
   return (
     <AppShell
@@ -145,7 +186,10 @@ function MessagesPage() {
                   {active.contactPhone} · {active.channel}
                 </p>
               </div>
-              <ChatThread messages={active.messages} defaultChannel={active.channel} />
+              <ChatThread
+                messages={activeMessages.length > 0 ? activeMessages : active.messages}
+                defaultChannel={active.channel}
+              />
             </>
           ) : null}
         </div>

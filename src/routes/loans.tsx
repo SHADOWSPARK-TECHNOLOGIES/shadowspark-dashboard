@@ -38,8 +38,9 @@ import {
 } from "@/components/ui/select";
 import { LoanDetailPanel } from "@/components/loans/loan-detail-panel";
 import { formatNaira, initials, relativeTime } from "@/lib/format";
-import { loans, officers } from "@/lib/mock-data";
+import { officers } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { normalizeBackendLoan, useLoansQuery } from "@/lib/backend-api";
 
 export const Route = createFileRoute("/loans")({
   head: () => ({
@@ -74,6 +75,7 @@ const allStatuses: LoanStatus[] = [
 ];
 
 function LoansPage() {
+  const loansQuery = useLoansQuery();
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<LoanStatus[]>([]);
   const [search, setSearch] = useState("");
@@ -82,9 +84,13 @@ function LoansPage() {
   const [officer, setOfficer] = useState("all");
   const [activeLoan, setActiveLoan] = useState<LoanApplication | null>(null);
   const [pendingDelete, setPendingDelete] = useState<LoanApplication | null>(null);
+  const liveLoans = useMemo(
+    () => (loansQuery.data?.data ?? []).map(normalizeBackendLoan),
+    [loansQuery.data?.data],
+  );
 
   const filtered = useMemo(() => {
-    return loans.filter((loan) => {
+    return liveLoans.filter((loan) => {
       if (selectedStatuses.length > 0 && !selectedStatuses.includes(loan.status)) return false;
       if (officer !== "all" && loan.assignedOfficer?.name !== officer) return false;
       if (minAmount && loan.loanAmount < Number(minAmount)) return false;
@@ -100,7 +106,7 @@ function LoansPage() {
       }
       return true;
     });
-  }, [selectedStatuses, officer, minAmount, maxAmount, search]);
+  }, [liveLoans, selectedStatuses, officer, minAmount, maxAmount, search]);
 
   const columns = useMemo<ColumnDef<LoanApplication, unknown>[]>(
     () => [

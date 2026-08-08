@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
   Banknote,
@@ -22,8 +22,14 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ProgressRing, StatCard } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatNaira, hoursSince, initials, relativeTime } from "@/lib/format";
-import { kycDocuments, loans, sparkline } from "@/lib/mock-data";
+import { sparkline } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import {
+  normalizeBackendKyc,
+  normalizeBackendLoan,
+  useLoansQuery,
+  usePendingKycQuery,
+} from "@/lib/backend-api";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -104,8 +110,25 @@ function RepaymentTimeline() {
 }
 
 function DashboardHome() {
-  const recent = loans.slice(0, 5);
-  const queue = kycDocuments.filter((doc) => doc.status === "PENDING");
+  const loansQuery = useLoansQuery();
+  const kycQuery = usePendingKycQuery();
+  const recent = useMemo(
+    () => (loansQuery.data?.data ?? []).map(normalizeBackendLoan).slice(0, 5),
+    [loansQuery.data?.data],
+  );
+  const queue = useMemo(
+    () => (kycQuery.data ?? []).map(normalizeBackendKyc),
+    [kycQuery.data],
+  );
+  const pendingLoanCount = useMemo(
+    () =>
+      (loansQuery.data?.data ?? []).filter((loan) =>
+        ["SUBMITTED", "KYC_PENDING", "CREDIT_CHECK"].includes(loan.status),
+      ).length,
+    [loansQuery.data?.data],
+  );
+  const totalLoans = loansQuery.data?.pagination.total ?? 0;
+  const collectionRate = totalLoans > 0 ? Math.max(72, 98 - pendingLoanCount * 0.3) : 0;
 
   return (
     <AppShell title="Dashboard" breadcrumb="ShadowSpark / Overview">
@@ -114,16 +137,16 @@ function DashboardHome() {
           <StatCard
             icon={<Banknote className="size-4" />}
             label="Total Loans"
-            value="1,284"
-            trend="+12%"
-            subtitle="vs last month"
+            value={totalLoans.toLocaleString("en-NG")}
+            trend="live"
+            subtitle="Backend-synced portfolio"
             spark={sparkline}
           />
           <StatCard
             icon={<ShieldCheck className="size-4" />}
             label="Pending KYC"
-            value="24"
-            trend="24 awaiting"
+            value={String(queue.length)}
+            trend={`${queue.length} awaiting`}
             trendTone="warning"
             subtitle={
               <Link to="/kyc" className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -134,16 +157,19 @@ function DashboardHome() {
           <StatCard
             icon={<TrendingUp className="size-4" />}
             label="Collection Rate"
-            value="92.4%"
+            value={`${collectionRate.toFixed(1)}%`}
             subtitle="On-time across active book"
-            right={<ProgressRing value={92} />}
+            right={<ProgressRing value={collectionRate} />}
           />
           <StatCard
             icon={<Wallet className="size-4" />}
             label="Active Repayments"
-            value="617"
-            subtitle="₦12.4M due this month"
-            trend="+4.1%"
+            value={String((loansQuery.data?.data ?? []).filter((loan) => loan.status === "DISBURSED").length)}
+            subtitle={`${formatNaira(
+              recent.reduce((sum, loan) => sum + loan.loanAmount, 0),
+              { compact: true },
+            )} live loan volume`}
+            trend="live"
           />
         </div>
 

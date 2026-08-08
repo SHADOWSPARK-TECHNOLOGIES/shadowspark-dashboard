@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { CheckCircle2, Flag, HelpCircle, IdCard, Receipt, ShieldCheck, X, FileText } from "lucide-react";
 import { toast } from "sonner";
@@ -14,8 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { hoursSince, initials, relativeTime } from "@/lib/format";
-import { kycDocuments } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { normalizeBackendKyc, usePendingKycQuery } from "@/lib/backend-api";
 
 export const Route = createFileRoute("/kyc")({
   head: () => ({
@@ -53,10 +53,20 @@ const columnsConfig: { key: KycStatus; title: string; accent: string }[] = [
 ];
 
 function KycPage() {
-  const [docs, setDocs] = useState<KycDocument[]>(kycDocuments);
+  const kycQuery = usePendingKycQuery();
+  const [docs, setDocs] = useState<KycDocument[]>([]);
   const [active, setActive] = useState<KycDocument | null>(null);
   const [dragged, setDragged] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+
+  const liveDocs = useMemo(
+    () => (kycQuery.data ?? []).map(normalizeBackendKyc),
+    [kycQuery.data],
+  );
+
+  useEffect(() => {
+    setDocs(liveDocs);
+  }, [liveDocs]);
 
   function move(id: string, status: KycStatus) {
     setDocs((prev) => prev.map((doc) => (doc.id === id ? { ...doc, status } : doc)));
@@ -65,8 +75,8 @@ function KycPage() {
 
   const stats = [
     { label: "Pending", value: docs.filter((d) => d.status === "PENDING").length, tone: "text-warning" },
-    { label: "Verified today", value: 18, tone: "text-success" },
-    { label: "Rejected today", value: 3, tone: "text-destructive" },
+    { label: "Verified today", value: 0, tone: "text-success" },
+    { label: "Rejected today", value: 0, tone: "text-destructive" },
   ];
 
   return (

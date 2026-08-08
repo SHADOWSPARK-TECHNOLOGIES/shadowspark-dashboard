@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as KycRouteImport } from './routes/kyc'
 import { Route as LoansRouteImport } from './routes/loans'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as MessagesRouteImport } from './routes/messages'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
@@ -37,6 +38,11 @@ const LoansRoute = LoansRouteImport.update({
   path: '/loans',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MessagesRoute = MessagesRouteImport.update({
   id: '/messages',
   path: '/messages',
@@ -58,6 +64,7 @@ export interface FileRoutesByFullPath {
   '/analytics': typeof AnalyticsRoute
   '/kyc': typeof KycRoute
   '/loans': typeof LoansRoute
+  '/login': typeof LoginRoute
   '/messages': typeof MessagesRoute
   '/settings': typeof SettingsRoute
   '/workflows': typeof WorkflowsRoute
@@ -67,6 +74,7 @@ export interface FileRoutesByTo {
   '/analytics': typeof AnalyticsRoute
   '/kyc': typeof KycRoute
   '/loans': typeof LoansRoute
+  '/login': typeof LoginRoute
   '/messages': typeof MessagesRoute
   '/settings': typeof SettingsRoute
   '/workflows': typeof WorkflowsRoute
@@ -77,6 +85,7 @@ export interface FileRoutesById {
   '/analytics': typeof AnalyticsRoute
   '/kyc': typeof KycRoute
   '/loans': typeof LoansRoute
+  '/login': typeof LoginRoute
   '/messages': typeof MessagesRoute
   '/settings': typeof SettingsRoute
   '/workflows': typeof WorkflowsRoute
@@ -88,6 +97,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/kyc'
     | '/loans'
+    | '/login'
     | '/messages'
     | '/settings'
     | '/workflows'
@@ -97,6 +107,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/kyc'
     | '/loans'
+    | '/login'
     | '/messages'
     | '/settings'
     | '/workflows'
@@ -106,6 +117,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/kyc'
     | '/loans'
+    | '/login'
     | '/messages'
     | '/settings'
     | '/workflows'
@@ -116,6 +128,7 @@ export interface RootRouteChildren {
   AnalyticsRoute: typeof AnalyticsRoute
   KycRoute: typeof KycRoute
   LoansRoute: typeof LoansRoute
+  LoginRoute: typeof LoginRoute
   MessagesRoute: typeof MessagesRoute
   SettingsRoute: typeof SettingsRoute
   WorkflowsRoute: typeof WorkflowsRoute
@@ -151,6 +164,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoansRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/messages': {
       id: '/messages'
       path: '/messages'
@@ -180,6 +200,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnalyticsRoute: AnalyticsRoute,
   KycRoute: KycRoute,
   LoansRoute: LoansRoute,
+  LoginRoute: LoginRoute,
   MessagesRoute: MessagesRoute,
   SettingsRoute: SettingsRoute,
   WorkflowsRoute: WorkflowsRoute,

@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   BarChart3,
   Banknote,
@@ -33,6 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { currentUser, pendingLoanCount, tenant } from "@/lib/mock-data";
 import { toast } from "sonner";
+import { ApiError, clearStoredToken, getStoredToken, useAuthMeQuery } from "@/lib/backend-api";
 
 const navItems = [
   { label: "Dashboard", to: "/", icon: LayoutDashboard },
@@ -114,7 +115,19 @@ function NavList({
   );
 }
 
-function UserMenu({ collapsed }: { collapsed: boolean }) {
+function UserMenu({
+  collapsed,
+  name,
+  role,
+  initials,
+  onLogout,
+}: {
+  collapsed: boolean;
+  name: string;
+  role: string;
+  initials: string;
+  onLogout: () => void;
+}) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -125,25 +138,28 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
           )}
         >
           <span className="num grid size-9 shrink-0 place-items-center rounded-full bg-primary/15 text-xs font-semibold text-primary">
-            {currentUser.initials}
+            {initials}
           </span>
           {!collapsed ? (
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{currentUser.name}</span>
-              <span className="block truncate text-[11px] text-muted-foreground">
-                {currentUser.role}
-              </span>
+              <span className="block truncate text-sm font-medium">{name}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">{role}</span>
             </span>
           ) : null}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
-        <DropdownMenuLabel>{currentUser.name}</DropdownMenuLabel>
+        <DropdownMenuLabel>{name}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link to="/settings">Account settings</Link>
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => toast.success("Signed out of ShadowSpark")}>
+        <DropdownMenuItem
+          onClick={() => {
+            onLogout();
+            toast.success("Signed out of ShadowSpark");
+          }}
+        >
           <LogOut className="size-4" />
           Logout
         </DropdownMenuItem>
@@ -156,17 +172,31 @@ function SidebarBody({
   collapsed,
   onToggle,
   onNavigate,
+  userName,
+  userRole,
+  userInitials,
+  onLogout,
 }: {
   collapsed: boolean;
   onToggle?: (() => void) | undefined;
   onNavigate?: (() => void) | undefined;
+  userName: string;
+  userRole: string;
+  userInitials: string;
+  onLogout: () => void;
 }) {
   return (
     <div className="flex h-full flex-col bg-sidebar">
       <Brand collapsed={collapsed} />
       <NavList collapsed={collapsed} onNavigate={onNavigate} />
       <div className="space-y-1 border-t border-sidebar-border p-2">
-        <UserMenu collapsed={collapsed} />
+        <UserMenu
+          collapsed={collapsed}
+          name={userName}
+          role={userRole}
+          initials={userInitials}
+          onLogout={onLogout}
+        />
         {onToggle ? (
           <button
             onClick={onToggle}
@@ -203,6 +233,40 @@ export function AppShell({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const tokenPresent = typeof window !== "undefined" && Boolean(getStoredToken());
+  const { data: session, error: sessionError } = useAuthMeQuery();
+
+  useEffect(() => {
+    if (!tokenPresent && pathname !== "/login") {
+      navigate({ to: "/login", replace: true });
+    }
+  }, [navigate, pathname, tokenPresent]);
+
+  useEffect(() => {
+    if (sessionError instanceof ApiError && sessionError.status === 401) {
+      clearStoredToken();
+      navigate({ to: "/login", replace: true });
+    }
+  }, [navigate, sessionError]);
+
+  const tenantName = session?.tenant.name ?? tenant.name;
+  const userName =
+    session?.user.firstName && session?.user.lastName
+      ? `${session.user.firstName} ${session.user.lastName}`
+      : currentUser.name;
+  const userRole = session?.user.role ?? currentUser.role;
+  const userInitials = userName
+    .split(" ")
+    .map((part) => part[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+  const handleLogout = () => {
+    clearStoredToken();
+    navigate({ to: "/login", replace: true });
+  };
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -213,7 +277,14 @@ export function AppShell({
         )}
       >
         <div className="sticky top-0 h-screen">
-          <SidebarBody collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
+          <SidebarBody
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((v) => !v)}
+            userName={userName}
+            userRole={userRole}
+            userInitials={userInitials}
+            onLogout={handleLogout}
+          />
         </div>
       </aside>
 
@@ -227,7 +298,14 @@ export function AppShell({
             </SheetTrigger>
             <SheetContent side="left" className="w-[260px] border-sidebar-border p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
-              <SidebarBody collapsed={false} onNavigate={() => setMobileOpen(false)} />
+              <SidebarBody
+                collapsed={false}
+                onNavigate={() => setMobileOpen(false)}
+                userName={userName}
+                userRole={userRole}
+                userInitials={userInitials}
+                onLogout={handleLogout}
+              />
             </SheetContent>
           </Sheet>
 
@@ -259,7 +337,7 @@ export function AppShell({
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="hidden max-w-[190px] md:flex">
                   <Building2 className="size-4 text-primary" />
-                  <span className="truncate">{tenant.name}</span>
+                  <span className="truncate">{tenantName}</span>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
