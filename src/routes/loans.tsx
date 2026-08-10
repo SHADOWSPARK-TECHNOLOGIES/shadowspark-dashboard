@@ -22,7 +22,6 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   DropdownMenu,
@@ -38,10 +37,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoanDetailPanel } from "@/components/loans/loan-detail-panel";
+import { AsyncError, AsyncLoading } from "@/components/ui/async-state";
 import { useCreateLoanMutation, useUpdateLoanStatusMutation } from "@/hooks/use-lending";
 import { formatNaira, initials, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { normalizeBackendLoan, useLoansQuery } from "@/lib/backend-api";
+import { normalizeApiError, normalizeBackendLoan, useLoansQuery } from "@/lib/backend-api";
 
 export const Route = createFileRoute("/loans")({
   head: () => ({
@@ -527,22 +527,13 @@ function LoansPage() {
         ) : null}
 
         {loansQuery.isPending ? (
-          <div className="space-y-2 rounded-xl border border-border bg-card p-5">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="h-10 w-full" />
-            ))}
-          </div>
+          <AsyncLoading rows={6} />
         ) : loansQuery.isError ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-10 text-center">
-            <p className="text-sm text-muted-foreground">
-              {loansQuery.error instanceof Error
-                ? loansQuery.error.message
-                : "Failed to load loan applications"}
-            </p>
-            <Button className="mt-4" size="sm" onClick={() => loansQuery.refetch()}>
-              Retry
-            </Button>
-          </div>
+          <AsyncError
+            title="Failed to load loan applications"
+            message={normalizeApiError(loansQuery.error).error.message}
+            onRetry={() => loansQuery.refetch()}
+          />
         ) : (
           <DataTable
             data={filtered}

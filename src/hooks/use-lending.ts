@@ -2,20 +2,18 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { LoanStatus } from "@/types";
 import {
-  ApiError,
   assignLoan,
   createLoan,
   getLoanById,
   idempotencyKeyFor,
+  normalizeApiError,
   normalizeBackendLoan,
   updateLoanStatus,
   type CreateLoanInput,
 } from "@/lib/backend-api";
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Something went wrong";
+  return normalizeApiError(error).error.message;
 }
 
 export function useCreateLoanMutation() {

@@ -16,8 +16,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { AsyncError, AsyncEmpty } from "@/components/ui/async-state";
 import { DocumentViewer } from "@/components/ui/document-viewer";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,7 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { hoursSince, initials, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { normalizeBackendKyc, usePendingKycQuery } from "@/lib/backend-api";
+import { normalizeApiError, normalizeBackendKyc, usePendingKycQuery } from "@/lib/backend-api";
 import {
   useRejectKycMutation,
   useRequestKycInfoMutation,
@@ -135,18 +135,13 @@ function KycPage() {
             ))}
           </div>
         ) : kycQuery.isError ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-10 text-center">
-            <p className="text-sm text-muted-foreground">
-              {kycQuery.error instanceof Error
-                ? kycQuery.error.message
-                : "Failed to load the KYC queue"}
-            </p>
-            <Button className="mt-4" size="sm" onClick={() => kycQuery.refetch()}>
-              Retry
-            </Button>
-          </div>
+          <AsyncError
+            title="Failed to load the KYC queue"
+            message={normalizeApiError(kycQuery.error).error.message}
+            onRetry={() => kycQuery.refetch()}
+          />
         ) : docs.length === 0 ? (
-          <EmptyState
+          <AsyncEmpty
             title="KYC queue is empty"
             description="New submissions will appear here when applicants upload documents."
           />

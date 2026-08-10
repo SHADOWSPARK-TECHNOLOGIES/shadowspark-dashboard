@@ -1,8 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { toast } from "sonner";
 import {
   ApiError,
+  getTenantIdFromToken,
   idempotencyKeyFor,
+  normalizeApiError,
   updateSettings,
   useTenantProfileQuery,
   type SettingsUpdateInput,
@@ -10,10 +13,13 @@ import {
 
 export { useTenantProfileQuery };
 
+export function useTenantId(): string | null {
+  return useMemo(() => getTenantIdFromToken(), []);
+}
+
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Something went wrong";
+  const normalized = normalizeApiError(error);
+  return normalized.error.message;
 }
 
 export function useUpdateSettingsMutation() {

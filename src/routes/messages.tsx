@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Mail, MessageCircle, Phone, Search, Send } from "lucide-react";
 import { AppShell } from "@/components/shell/app-shell";
+import { AsyncError, AsyncEmpty } from "@/components/ui/async-state";
 import { Button } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChatThread } from "@/components/ui/chat-thread";
 import { initials, relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
+  normalizeApiError,
   normalizeBackendConversation,
   useConversationMessagesQuery,
   useConversationsQuery,
@@ -157,23 +158,15 @@ function MessagesPage() {
               ))
             ) : conversationsQuery.isError ? (
               <li className="px-3 py-6 text-center">
-                <p className="text-xs text-muted-foreground">
-                  {conversationsQuery.error instanceof Error
-                    ? conversationsQuery.error.message
-                    : "Failed to load conversations"}
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3"
-                  onClick={() => conversationsQuery.refetch()}
-                >
-                  Retry
-                </Button>
+                <AsyncError
+                  title="Failed to load conversations"
+                  message={normalizeApiError(conversationsQuery.error).error.message}
+                  onRetry={() => conversationsQuery.refetch()}
+                />
               </li>
             ) : list.length === 0 ? (
-              <li className="px-3 py-6 text-center text-xs text-muted-foreground">
-                No conversations found
+              <li className="px-3 py-6">
+                <AsyncEmpty title="No conversations found" />
               </li>
             ) : (
               list.map((conversation) => (
@@ -230,18 +223,15 @@ function MessagesPage() {
                   ))}
                 </div>
               ) : activeMessagesQuery.isError ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-                  <p className="text-sm text-muted-foreground">
-                    {activeMessagesQuery.error instanceof Error
-                      ? activeMessagesQuery.error.message
-                      : "Failed to load messages"}
-                  </p>
-                  <Button size="sm" variant="outline" onClick={() => activeMessagesQuery.refetch()}>
-                    Retry
-                  </Button>
+                <div className="flex flex-1 flex-col items-center justify-center p-6">
+                  <AsyncError
+                    title="Failed to load messages"
+                    message={normalizeApiError(activeMessagesQuery.error).error.message}
+                    onRetry={() => activeMessagesQuery.refetch()}
+                  />
                 </div>
               ) : activeMessages.length === 0 ? (
-                <EmptyState
+                <AsyncEmpty
                   title="No messages yet"
                   description="No message history exists for this conversation."
                 />
@@ -262,7 +252,7 @@ function MessagesPage() {
               )}
             </>
           ) : (
-            <EmptyState
+            <AsyncEmpty
               title="Select a conversation"
               description="Choose a conversation from the list to read and reply."
             />

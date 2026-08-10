@@ -19,11 +19,16 @@ import {
 } from "recharts";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shell/app-shell";
+import { AsyncError, AsyncEmpty } from "@/components/ui/async-state";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useConversationsQuery, useLoansQuery, usePendingKycQuery } from "@/lib/backend-api";
+import {
+  normalizeApiError,
+  useConversationsQuery,
+  useLoansQuery,
+  usePendingKycQuery,
+} from "@/lib/backend-api";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/analytics")({
@@ -230,22 +235,17 @@ function AnalyticsPage() {
             <ChartSkeleton />
           </div>
         ) : isError ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-10 text-center">
-            <p className="text-sm text-muted-foreground">{errorMessage}</p>
-            <Button
-              className="mt-4"
-              size="sm"
-              onClick={() => {
-                void loansQuery.refetch();
-                void kycQuery.refetch();
-                void conversationsQuery.refetch();
-              }}
-            >
-              Retry
-            </Button>
-          </div>
+          <AsyncError
+            title="Failed to load analytics"
+            message={errorMessage}
+            onRetry={() => {
+              void loansQuery.refetch();
+              void kycQuery.refetch();
+              void conversationsQuery.refetch();
+            }}
+          />
         ) : !hasData ? (
-          <EmptyState title="No analytics data" description="Data will appear after backend activity." />
+          <AsyncEmpty title="No analytics data" description="Data will appear after backend activity." />
         ) : (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <ChartCard

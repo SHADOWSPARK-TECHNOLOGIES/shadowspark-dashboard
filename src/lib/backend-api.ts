@@ -14,11 +14,53 @@ export interface ApiErrorPayload {
 
 export interface AuthUser {
   id: string;
-  tenantId: string;
+  tenantId?: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
   role: string | null;
+}
+
+export interface JwtPayload {
+  sub?: string;
+  tenantId?: string;
+  email?: string;
+  role?: string;
+  exp?: number;
+  iat?: number;
+}
+
+export function decodeJwt(token: string): JwtPayload | null {
+  try {
+    const base64Url = token.split(".")[1];
+    if (!base64Url) return null;
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const json = typeof atob !== "undefined" ? atob(base64) : Buffer.from(base64, "base64").toString("utf-8");
+    const payload = JSON.parse(json) as unknown;
+    if (payload && typeof payload === "object") {
+      return payload as JwtPayload;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function getTenantIdFromToken(): string | null {
+  const token = getStoredToken();
+  return token ? decodeJwt(token)?.tenantId ?? null : null;
+}
+
+export function normalizeApiError(
+  error: unknown,
+): { success: false; error: { code: string; message: string } } {
+  if (error instanceof ApiError) {
+    return { success: false, error: { code: error.code, message: error.message } };
+  }
+  if (error instanceof Error) {
+    return { success: false, error: { code: "UNKNOWN_ERROR", message: error.message } };
+  }
+  return { success: false, error: { code: "UNKNOWN_ERROR", message: "Something went wrong" } };
 }
 
 export interface TenantProfile {
@@ -230,7 +272,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   headers.set("Accept", "application/json");
   if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
+    headers.set('Authorization', 'Bearer ' + token);
   }
 
   if (init.body && !headers.has("Content-Type")) {

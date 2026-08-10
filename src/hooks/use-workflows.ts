@@ -1,17 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  ApiError,
   executeWorkflow,
   getWorkflowById,
   idempotencyKeyFor,
   listWorkflows,
+  normalizeApiError,
 } from "@/lib/backend-api";
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Something went wrong";
+  return normalizeApiError(error).error.message;
 }
 
 export function useWorkflowsQuery() {

@@ -1,7 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { clearStoredToken, login, setStoredToken, useAuthMeQuery } from "@/lib/backend-api";
+import { toast } from "sonner";
+import {
+  clearStoredToken,
+  login,
+  normalizeApiError,
+  setStoredToken,
+  useAuthMeQuery,
+} from "@/lib/backend-api";
 
 export { useAuthMeQuery };
+
+function errorMessage(error: unknown): string {
+  return normalizeApiError(error).error.message;
+}
 
 export function useLoginMutation() {
   const queryClient = useQueryClient();
@@ -14,6 +25,10 @@ export function useLoginMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      toast.success("Signed in");
+    },
+    onError: (error) => {
+      toast.error(errorMessage(error));
     },
   });
 }

@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  ApiError,
   idempotencyKeyFor,
+  normalizeApiError,
   sendMessage,
   useConversationMessagesQuery,
   useConversationsQuery,
@@ -12,9 +12,7 @@ import {
 export { useConversationsQuery, useConversationMessagesQuery };
 
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  if (error instanceof Error) return error.message;
-  return "Something went wrong";
+  return normalizeApiError(error).error.message;
 }
 
 export function useSendMessageMutation() {
