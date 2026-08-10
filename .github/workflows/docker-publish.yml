@@ -8,17 +8,22 @@ jobs:
     permissions:
       contents: read
       security-events: write
+    env:
+      DOCKER_IMAGE: ${{ secrets.DOCKER_USERNAME && format('{0}/shadowspark-dashboard', secrets.DOCKER_USERNAME) || 'shadowspark-dashboard' }}
+      CAN_PUSH: ${{ secrets.DOCKER_USERNAME != '' && secrets.DOCKER_PAT != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Login to Docker Hub
+        if: env.CAN_PUSH == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PAT }}
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKER_USERNAME }}/shadowspark-dashboard
+          images: ${{ env.DOCKER_IMAGE }}
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -26,15 +31,16 @@ jobs:
       - uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
+          push: ${{ env.CAN_PUSH == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Docker Scout CVE gate
+        if: env.CAN_PUSH == 'true'
         uses: docker/scout-action@v1
         with:
           command: cves
-          image: ${{ secrets.DOCKER_USERNAME }}/shadowspark-dashboard:latest
+          image: ${{ env.DOCKER_IMAGE }}:latest
           only-severities: critical,high
           exit-code: true
