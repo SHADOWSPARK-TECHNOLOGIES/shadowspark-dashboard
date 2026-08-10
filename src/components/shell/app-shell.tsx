@@ -13,7 +13,6 @@ import {
   Menu,
   MessageSquare,
   Plus,
-  ScrollText,
   Search,
   Settings,
   ShieldCheck,
@@ -31,19 +30,23 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import { currentUser, pendingLoanCount, tenant } from "@/lib/mock-data";
 import { toast } from "sonner";
-import { ApiError, clearStoredToken, getStoredToken, useAuthMeQuery } from "@/lib/backend-api";
+import {
+  ApiError,
+  clearStoredToken,
+  getStoredToken,
+  useAuthMeQuery,
+  useLoansQuery,
+} from "@/lib/backend-api";
 
 const navItems = [
   { label: "Dashboard", to: "/", icon: LayoutDashboard },
-  { label: "Loans", to: "/loans", icon: Banknote, badge: pendingLoanCount },
+  { label: "Loans", to: "/loans", icon: Banknote },
   { label: "KYC Verification", to: "/kyc", icon: ShieldCheck },
   { label: "Messages", to: "/messages", icon: MessageSquare, dot: true },
   { label: "Workflows", to: "/workflows", icon: GitBranch },
   { label: "Analytics", to: "/analytics", icon: BarChart3 },
   { label: "Settings", to: "/settings", icon: Settings },
-  { label: "Audit Logs", to: "/audit", icon: ScrollText },
 ] as const;
 
 function Brand({ collapsed }: { collapsed: boolean }) {
@@ -70,12 +73,17 @@ function NavList({
   onNavigate?: (() => void) | undefined;
 }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const loansQuery = useLoansQuery();
+  const pendingBadge = (loansQuery.data?.data ?? []).filter((loan) =>
+    ["SUBMITTED", "KYC_PENDING", "CREDIT_CHECK"].includes(loan.status),
+  ).length;
 
   return (
     <nav className="flex flex-1 flex-col gap-1 px-2 py-2">
       {navItems.map((item) => {
         const active = pathname === item.to;
         const Icon = item.icon;
+        const badge = item.to === "/loans" && pendingBadge > 0 ? pendingBadge : null;
         return (
           <Link
             key={item.to}
@@ -101,9 +109,9 @@ function NavList({
             {!collapsed ? (
               <>
                 <span className="truncate">{item.label}</span>
-                {"badge" in item && item.badge ? (
+                {badge ? (
                   <span className="num ml-auto rounded-md bg-elevated px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {item.badge}
+                    {badge}
                   </span>
                 ) : null}
               </>
@@ -251,12 +259,12 @@ export function AppShell({
     }
   }, [navigate, sessionError]);
 
-  const tenantName = session?.tenant.name ?? tenant.name;
+  const tenantName = session?.tenant.name ?? "ShadowSpark";
   const userName =
     session?.user.firstName && session?.user.lastName
       ? `${session.user.firstName} ${session.user.lastName}`
-      : currentUser.name;
-  const userRole = session?.user.role ?? currentUser.role;
+      : (session?.user.email ?? "Operator");
+  const userRole = session?.user.role ?? "officer";
   const userInitials = userName
     .split(" ")
     .map((part) => part[0] ?? "")
@@ -292,7 +300,12 @@ export function AppShell({
         <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur md:px-6">
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                aria-label="Open navigation"
+              >
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>

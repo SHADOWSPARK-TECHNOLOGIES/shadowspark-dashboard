@@ -27,7 +27,7 @@ export function DataTable<T>({
   columns: ColumnDef<T, unknown>[];
   pageSize?: number;
   enableSelection?: boolean;
-  bulkActions?: (selectedCount: number, clear: () => void) => ReactNode;
+  bulkActions?: (selectedCount: number, clear: () => void, rows: T[]) => ReactNode;
   emptyState?: ReactNode;
   onRowClick?: (row: T) => void;
   stickyHeader?: boolean;
@@ -62,7 +62,11 @@ export function DataTable<T>({
             {selectedCount} row{selectedCount === 1 ? "" : "s"} selected
           </span>
           <div className="flex items-center gap-2">
-            {bulkActions(selectedCount, () => setRowSelection({}))}
+            {bulkActions(
+              selectedCount,
+              () => setRowSelection({}),
+              table.getSelectedRowModel().rows.map((row) => row.original),
+            )}
           </div>
         </div>
       ) : null}

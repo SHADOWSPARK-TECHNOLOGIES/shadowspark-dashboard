@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Paperclip, Send } from "lucide-react";
+import { Send } from "lucide-react";
 import type { Message, MessageChannel } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,46 +12,34 @@ import {
 } from "@/components/ui/select";
 import { relativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 export function ChatThread({
   messages,
   defaultChannel = "WHATSAPP",
   className,
+  onSend,
+  sending = false,
 }: {
   messages: Message[];
   defaultChannel?: MessageChannel;
   className?: string;
+  onSend?: (input: { channel: MessageChannel; body: string }) => void;
+  sending?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [channel, setChannel] = useState<MessageChannel>(defaultChannel);
-  const [local, setLocal] = useState<Message[]>([]);
-
-  const all = [...messages, ...local];
 
   function send() {
-    if (!draft.trim()) return;
-    setLocal((prev) => [
-      ...prev,
-      {
-        id: `local-${prev.length}`,
-        channel,
-        direction: "OUTBOUND",
-        from: "ShadowSpark",
-        to: "applicant",
-        body: draft.trim(),
-        status: "SENT",
-        createdAt: new Date().toISOString(),
-      },
-    ]);
+    const body = draft.trim();
+    if (!body || sending) return;
+    onSend?.({ channel, body });
     setDraft("");
-    toast.success(`Message queued on ${channel.toLowerCase()}`);
   }
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
       <div className="scroll-slim flex-1 space-y-4 overflow-y-auto p-4">
-        {all.map((message) => {
+        {messages.map((message) => {
           const outbound = message.direction === "OUTBOUND";
           return (
             <div
@@ -95,11 +83,15 @@ export function ChatThread({
             if (event.key === "Enter") send();
           }}
           placeholder="Write a reply…"
+          disabled={sending || !onSend}
         />
-        <Button variant="ghost" size="icon" className="shrink-0" aria-label="Attach file">
-          <Paperclip className="size-4" />
-        </Button>
-        <Button size="icon" className="shrink-0" onClick={send} aria-label="Send message">
+        <Button
+          size="icon"
+          className="shrink-0"
+          onClick={send}
+          aria-label="Send message"
+          disabled={sending || !onSend || !draft.trim()}
+        >
           <Send className="size-4" />
         </Button>
       </div>

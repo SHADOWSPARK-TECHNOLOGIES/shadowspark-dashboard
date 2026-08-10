@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Conversation, KycDocument, LoanApplication, LoanStatus, Message } from "@/types";
 
-const DEFAULT_BACKEND_URL = "https://shadowspark-production-one.vercel.app";
+const PROXY_PREFIX = "/api/proxy";
 export const TOKEN_STORAGE_KEY = "shadowspark_token";
 
 export interface ApiErrorPayload {
@@ -142,10 +142,14 @@ export class ApiError extends Error {
 }
 
 function getBackendBaseUrl(): string {
-  return (
-    (import.meta.env.VITE_BACKEND_API_URL as string | undefined)?.replace(/\/$/, "") ??
-    DEFAULT_BACKEND_URL
-  );
+  if (typeof window === "undefined") {
+    return (
+      (process.env["BACKEND_API_URL"] as string | undefined)?.replace(/\/$/, "") ??
+      (process.env["VITE_BACKEND_API_URL"] as string | undefined)?.replace(/\/$/, "") ??
+      ""
+    );
+  }
+  return "";
 }
 
 export function getStoredToken(): string | null {
@@ -173,14 +177,54 @@ function toNumber(value: string | number | null | undefined): number | undefined
 
 function unwrapResponse<T>(payload: unknown): T {
   const envelope = payload as BackendEnvelope<T>;
-  if (envelope && typeof envelope === "object" && "data" in envelope && envelope.data !== undefined) {
+  if (
+    envelope &&
+    typeof envelope === "object" &&
+    "data" in envelope &&
+    envelope.data !== undefined
+  ) {
     return envelope.data as T;
   }
   return payload as T;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const url = `${getBackendBaseUrl()}${path.startsWith("/") ? path : `/${path}`}`;
+function generateIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const idempotencyKeys = new WeakMap<object, string>();
+
+/**
+ * Returns a stable Idempotency-Key for the same mutation `variables` object.
+ * React Query retries invoke mutationFn with the identical variables reference,
+ * so the key is reused across retries of the same logical operation.
+ */
+export function idempotencyKeyFor(variables: object): string {
+  let key = idempotencyKeys.get(variables);
+  if (!key) {
+    key = generateIdempotencyKey();
+    idempotencyKeys.set(variables, key);
+  }
+  return key;
+}
+
+interface RequestOptions extends RequestInit {
+  idempotencyKey?: string | undefined;
+}
+
+function toProxyPath(path: string): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  // backend-api paths are written as /api/v1/... — the proxy exposes /api/proxy/v1/...
+  return `${PROXY_PREFIX}${normalized.replace(/^\/api/, "")}`;
+}
+
+async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { idempotencyKey, ...init } = options;
+  const base = getBackendBaseUrl();
+  const url = `${base}${toProxyPath(path)}`;
   const token = getStoredToken();
   const headers = new Headers(init.headers);
 
@@ -191,6 +235,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (init.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
+  }
+
+  const isMutating = ["POST", "PATCH", "PUT", "DELETE"].includes(init.method ?? "GET");
+  if (isMutating) {
+    headers.set("Idempotency-Key", idempotencyKey ?? generateIdempotencyKey());
   }
 
   const response = await fetch(url, {
@@ -234,6 +283,209 @@ export async function getLoanById(id: string): Promise<BackendLoan> {
   return request<BackendLoan>(`/api/v1/loans/${id}`);
 }
 
+export interface CreateLoanInput {
+  applicantName: string;
+  applicantPhone: string;
+  applicantEmail?: string;
+  loanAmount: number;
+  loanPurpose?: string;
+  interestRate?: number;
+  tenureMonths?: number;
+  monthlyRepayment?: number;
+  totalRepayable?: number;
+}
+
+export async function createLoan(
+  input: CreateLoanInput,
+  opts?: { idempotencyKey?: string },
+): Promise<BackendLoan> {
+  return request<BackendLoan>("/api/v1/loans", {
+    method: "POST",
+    body: JSON.stringify(input),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export async function updateLoanStatus(
+  id: string,
+  status: LoanStatus,
+  opts?: { idempotencyKey?: string },
+): Promise<BackendLoan> {
+  return request<BackendLoan>(`/api/v1/loans/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export async function assignLoan(
+  id: string,
+  officerUserId: string,
+  opts?: { idempotencyKey?: string },
+): Promise<BackendLoan> {
+  return request<BackendLoan>(`/api/v1/loans/${id}/assign`, {
+    method: "POST",
+    body: JSON.stringify({ officerUserId }),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export async function verifyKycDocument(
+  id: string,
+  payload: {
+    verificationProvider?: string;
+    verificationResponse?: Record<string, unknown>;
+    notes?: string;
+  } = {},
+  opts?: { idempotencyKey?: string },
+): Promise<PendingKycBackendDocument> {
+  return request<PendingKycBackendDocument>(`/api/v1/kyc/${id}/verify`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export async function rejectKycDocument(
+  id: string,
+  reason: string,
+  opts?: { idempotencyKey?: string },
+): Promise<PendingKycBackendDocument> {
+  return request<PendingKycBackendDocument>(`/api/v1/kyc/${id}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export async function requestKycInfo(
+  id: string,
+  message: string,
+  opts?: { idempotencyKey?: string },
+): Promise<PendingKycBackendDocument> {
+  return request<PendingKycBackendDocument>(`/api/v1/kyc/${id}/request-info`, {
+    method: "POST",
+    body: JSON.stringify({ message }),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export interface SendMessageInput {
+  loanApplicationId: string;
+  channel: string;
+  to: string;
+  body: string;
+}
+
+export async function sendMessage(
+  input: SendMessageInput,
+  opts?: { idempotencyKey?: string },
+): Promise<MessageBackend> {
+  return request<MessageBackend>("/api/v1/messages/send", {
+    method: "POST",
+    body: JSON.stringify(input),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export interface BackendWorkflow {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type WorkflowsResponse = BackendWorkflow[];
+
+export async function listWorkflows(): Promise<WorkflowsResponse> {
+  return request<WorkflowsResponse>("/api/v1/workflows");
+}
+
+export interface WorkflowNode {
+  id: string;
+  type: "start" | "task" | "condition" | "end";
+  label?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  condition?: string;
+}
+
+export interface BackendWorkflowDetail extends BackendWorkflow {
+  nodes?: WorkflowNode[];
+  edges?: WorkflowEdge[];
+}
+
+export async function getWorkflowById(id: string): Promise<BackendWorkflowDetail> {
+  return request<BackendWorkflowDetail>(`/api/v1/workflows/${id}`);
+}
+
+export async function executeWorkflow(
+  id: string,
+  input?: Record<string, unknown>,
+  opts?: { idempotencyKey?: string },
+): Promise<unknown> {
+  return request<unknown>(`/api/v1/workflows/${id}/execute`, {
+    method: "POST",
+    body: JSON.stringify({ input: input ?? {} }),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export interface SettingsUpdateInput {
+  category: string;
+  key: string;
+  oldValue?: unknown;
+  newValue?: unknown;
+}
+
+export async function updateSettings(
+  input: SettingsUpdateInput,
+  opts?: { idempotencyKey?: string },
+): Promise<unknown> {
+  return request<unknown>("/api/v1/settings", {
+    method: "POST",
+    body: JSON.stringify(input),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface AiChatInput {
+  messages: ChatMessage[];
+  loan_context?: {
+    loanId?: string;
+    applicantName?: string;
+    loanAmount?: number;
+    status?: string;
+  };
+}
+
+export async function chatWithAi(
+  input: AiChatInput,
+  opts?: { idempotencyKey?: string },
+): Promise<{ success: boolean; data: { message?: string; reply?: string; content?: string } }> {
+  return request<{
+    success: boolean;
+    data: { message?: string; reply?: string; content?: string };
+  }>("/api/v1/ai/chat", {
+    method: "POST",
+    body: JSON.stringify({ ...input, stream: false }),
+    idempotencyKey: opts?.idempotencyKey,
+  });
+}
+
 export async function getPendingKyc(): Promise<PendingKycBackendDocument[]> {
   return request<PendingKycBackendDocument[]>("/api/v1/kyc/pending?limit=100&offset=0");
 }
@@ -242,7 +494,10 @@ export async function getConversations(): Promise<MessageConversationBackend[]> 
   return request<MessageConversationBackend[]>("/api/v1/messages/conversations");
 }
 
-export async function getConversationMessages(loanApplicationId: string, channel: string): Promise<MessageBackend[]> {
+export async function getConversationMessages(
+  loanApplicationId: string,
+  channel: string,
+): Promise<MessageBackend[]> {
   const params = new URLSearchParams({
     loanApplicationId,
     channel,
@@ -290,7 +545,10 @@ export function useConversationsQuery() {
   });
 }
 
-export function useConversationMessagesQuery(loanApplicationId: string | null, channel: string | null) {
+export function useConversationMessagesQuery(
+  loanApplicationId: string | null,
+  channel: string | null,
+) {
   return useQuery({
     queryKey: ["messages", loanApplicationId, channel],
     queryFn: () => getConversationMessages(loanApplicationId ?? "", channel ?? ""),
@@ -308,38 +566,45 @@ export function useTenantProfileQuery() {
 }
 
 export function normalizeBackendLoan(loan: BackendLoan): LoanApplication {
-  return {
+  const normalized: LoanApplication = {
     id: loan.id,
     applicantName: loan.applicantName,
     applicantPhone: loan.applicantPhone,
-    applicantEmail: loan.applicantEmail ?? undefined,
     loanAmount: toNumber(loan.loanAmount) ?? 0,
-    loanPurpose: loan.loanPurpose ?? undefined,
     status: loan.status,
-    interestRate: toNumber(loan.interestRate),
-    tenureMonths: loan.tenureMonths ?? undefined,
-    monthlyRepayment: toNumber(loan.monthlyRepayment),
-    totalRepayable: toNumber(loan.totalRepayable),
-    assignedOfficer: loan.assignedOfficer ?? undefined,
     createdAt: loan.createdAt,
   };
+  if (loan.applicantEmail != null) normalized.applicantEmail = loan.applicantEmail;
+  if (loan.loanPurpose != null) normalized.loanPurpose = loan.loanPurpose;
+  const interestRate = toNumber(loan.interestRate);
+  if (interestRate !== undefined) normalized.interestRate = interestRate;
+  if (loan.tenureMonths != null) normalized.tenureMonths = loan.tenureMonths;
+  const monthlyRepayment = toNumber(loan.monthlyRepayment);
+  if (monthlyRepayment !== undefined) normalized.monthlyRepayment = monthlyRepayment;
+  const totalRepayable = toNumber(loan.totalRepayable);
+  if (totalRepayable !== undefined) normalized.totalRepayable = totalRepayable;
+  if (loan.assignedOfficer != null) normalized.assignedOfficer = loan.assignedOfficer;
+  return normalized;
 }
 
 export function normalizeBackendKyc(doc: PendingKycBackendDocument): KycDocument {
-  return {
+  const normalized: KycDocument = {
     id: doc.id,
     applicantName: doc.loanApplication?.applicantName ?? "Unknown applicant",
     applicantPhone: doc.loanApplication?.applicantPhone ?? "",
     type: (doc.type as KycDocument["type"]) ?? "NIN",
     status: doc.status as KycDocument["status"],
     fileUrl: doc.fileUrl ?? "",
-    ocrData: doc.ocrData ?? undefined,
     submittedAt: doc.createdAt ?? new Date().toISOString(),
-    reviewedAt: doc.reviewedAt ?? undefined,
   };
+  if (doc.ocrData != null) normalized.ocrData = doc.ocrData;
+  if (doc.reviewedAt != null) normalized.reviewedAt = doc.reviewedAt;
+  return normalized;
 }
 
-export function normalizeBackendConversation(conversation: MessageConversationBackend): Conversation {
+export function normalizeBackendConversation(
+  conversation: MessageConversationBackend,
+): Conversation {
   return {
     id: `${conversation.loanApplicationId}:${conversation.channel}`,
     contactName: conversation.applicantName,

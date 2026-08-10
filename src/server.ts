@@ -9,6 +9,9 @@ type ServerEntry = {
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
+const DEFAULT_BACKEND_URL = "https://shadowspark-production-one.vercel.app";
+const PROXY_PREFIX = "/api/proxy";
+
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
@@ -44,9 +47,68 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+function getBackendBaseUrl(): string {
+  return (
+    (process.env["BACKEND_API_URL"] as string | undefined)?.replace(/\/$/, "") ??
+    (process.env["VITE_BACKEND_API_URL"] as string | undefined)?.replace(/\/$/, "") ??
+    DEFAULT_BACKEND_URL
+  );
+}
+
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "host",
+  "content-length",
+]);
+
+async function handleProxyRequest(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const backendPath = url.pathname.slice(PROXY_PREFIX.length);
+  const backendUrl = `${getBackendBaseUrl()}/api${backendPath}${url.search}`;
+
+  const headers = new Headers(request.headers);
+  for (const header of HOP_BY_HOP_HEADERS) {
+    headers.delete(header);
+  }
+
+  const init: RequestInit = {
+    method: request.method,
+    headers,
+    redirect: "manual",
+  };
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = await request.arrayBuffer();
+  }
+
+  const upstream = await fetch(backendUrl, init);
+  const responseHeaders = new Headers(upstream.headers);
+  for (const header of HOP_BY_HOP_HEADERS) {
+    responseHeaders.delete(header);
+  }
+
+  return new Response(upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: responseHeaders,
+  });
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
     try {
+      const url = new URL(request.url);
+      if (url.pathname.startsWith(PROXY_PREFIX)) {
+        return await handleProxyRequest(request);
+      }
+
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       return await normalizeCatastrophicSsrResponse(response);

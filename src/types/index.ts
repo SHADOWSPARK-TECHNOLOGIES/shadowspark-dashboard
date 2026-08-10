@@ -26,6 +26,7 @@ export type RepaymentStatus = "PENDING" | "PAID" | "PARTIAL" | "OVERDUE" | "WAIV
 export type MessageChannel = "WHATSAPP" | "TELEGRAM" | "SMS" | "USSD" | "EMAIL" | "VOICE";
 
 export interface Officer {
+  id?: string;
   name: string;
   avatar?: string;
 }

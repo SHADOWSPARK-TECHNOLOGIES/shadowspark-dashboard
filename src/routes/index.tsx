@@ -20,13 +20,15 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ProgressRing, StatCard } from "@/components/ui/stat-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { ApiError } from "@/lib/backend-api";
 import { formatNaira, hoursSince, initials, relativeTime } from "@/lib/format";
-import { sparkline } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import {
   normalizeBackendKyc,
   normalizeBackendLoan,
+  useConversationsQuery,
   useLoansQuery,
   usePendingKycQuery,
 } from "@/lib/backend-api";
@@ -109,9 +111,63 @@ function RepaymentTimeline() {
   );
 }
 
+function InlineError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-10 text-center shadow-[var(--shadow-card)]">
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <Button className="mt-4" size="sm" onClick={onRetry}>
+        Retry
+      </Button>
+    </div>
+  );
+}
+
+function StatSkeleton() {
+  return (
+    <Card className="gap-0 rounded-xl border-border bg-card p-5 shadow-[var(--shadow-card)]">
+      <div className="flex items-start justify-between">
+        <div className="space-y-2">
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-8 w-20" />
+          <Skeleton className="h-3 w-32" />
+        </div>
+        <Skeleton className="size-9 rounded-lg" />
+      </div>
+      <Skeleton className="mt-4 h-10 w-full" />
+    </Card>
+  );
+}
+
+function TableSkeleton() {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between px-1">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-7 w-20" />
+      </div>
+      <div className="rounded-xl border border-border bg-card p-0 shadow-[var(--shadow-card)]">
+        <div className="space-y-2 p-5">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <Skeleton className="size-8 rounded-full" />
+              <div className="flex-1 space-y-1">
+                <Skeleton className="h-3 w-32" />
+                <Skeleton className="h-2 w-24" />
+              </div>
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="h-5 w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function DashboardHome() {
   const loansQuery = useLoansQuery();
   const kycQuery = usePendingKycQuery();
+  const conversationsQuery = useConversationsQuery();
   const recent = useMemo(
     () => (loansQuery.data?.data ?? []).map(normalizeBackendLoan).slice(0, 5),
     [loansQuery.data?.data],
@@ -129,48 +185,87 @@ function DashboardHome() {
   );
   const totalLoans = loansQuery.data?.pagination.total ?? 0;
   const collectionRate = totalLoans > 0 ? Math.max(72, 98 - pendingLoanCount * 0.3) : 0;
+  const sparkline = useMemo(() => {
+    const latest = [...(loansQuery.data?.data ?? [])]
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+      .slice(-12)
+      .map((loan) => Number(loan.loanAmount));
+    if (latest.length === 0) return [0];
+    return latest;
+  }, [loansQuery.data?.data]);
+  const messageVolume = useMemo(
+    () => (conversationsQuery.data ?? []).reduce((sum, conversation) => sum + conversation.unreadCount, 0),
+    [conversationsQuery.data],
+  );
+
+  const loansError = loansQuery.error instanceof ApiError ? loansQuery.error.message : "Failed to load loans";
+  const kycError = kycQuery.error instanceof ApiError ? kycQuery.error.message : "Failed to load KYC queue";
 
   return (
     <AppShell title="Dashboard" breadcrumb="ShadowSpark / Overview">
       <div className="space-y-5">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            icon={<Banknote className="size-4" />}
-            label="Total Loans"
-            value={totalLoans.toLocaleString("en-NG")}
-            trend="live"
-            subtitle="Backend-synced portfolio"
-            spark={sparkline}
-          />
-          <StatCard
-            icon={<ShieldCheck className="size-4" />}
-            label="Pending KYC"
-            value={String(queue.length)}
-            trend={`${queue.length} awaiting`}
-            trendTone="warning"
-            subtitle={
-              <Link to="/kyc" className="inline-flex items-center gap-1 text-primary hover:underline">
-                Review <ArrowRight className="size-3" />
-              </Link>
-            }
-          />
-          <StatCard
-            icon={<TrendingUp className="size-4" />}
-            label="Collection Rate"
-            value={`${collectionRate.toFixed(1)}%`}
-            subtitle="On-time across active book"
-            right={<ProgressRing value={collectionRate} />}
-          />
-          <StatCard
-            icon={<Wallet className="size-4" />}
-            label="Active Repayments"
-            value={String((loansQuery.data?.data ?? []).filter((loan) => loan.status === "DISBURSED").length)}
-            subtitle={`${formatNaira(
-              recent.reduce((sum, loan) => sum + loan.loanAmount, 0),
-              { compact: true },
-            )} live loan volume`}
-            trend="live"
-          />
+          {loansQuery.isPending ? (
+            <StatSkeleton />
+          ) : loansQuery.isError ? (
+            <InlineError message={loansError} onRetry={() => loansQuery.refetch()} />
+          ) : (
+            <StatCard
+              icon={<Banknote className="size-4" />}
+              label="Total Loans"
+              value={totalLoans.toLocaleString("en-NG")}
+              trend="live"
+              subtitle="Backend-synced portfolio"
+              spark={sparkline}
+            />
+          )}
+          {kycQuery.isPending ? (
+            <StatSkeleton />
+          ) : kycQuery.isError ? (
+            <InlineError message={kycError} onRetry={() => kycQuery.refetch()} />
+          ) : (
+            <StatCard
+              icon={<ShieldCheck className="size-4" />}
+              label="Pending KYC"
+              value={String(queue.length)}
+              trend={`${queue.length} awaiting`}
+              trendTone="warning"
+              subtitle={
+                <Link to="/kyc" className="inline-flex items-center gap-1 text-primary hover:underline">
+                  Review <ArrowRight className="size-3" />
+                </Link>
+              }
+            />
+          )}
+          {loansQuery.isPending ? (
+            <StatSkeleton />
+          ) : loansQuery.isError ? (
+            <InlineError message={loansError} onRetry={() => loansQuery.refetch()} />
+          ) : (
+            <StatCard
+              icon={<TrendingUp className="size-4" />}
+              label="Collection Rate"
+              value={`${collectionRate.toFixed(1)}%`}
+              subtitle="On-time across active book"
+              right={<ProgressRing value={collectionRate} />}
+            />
+          )}
+          {loansQuery.isPending ? (
+            <StatSkeleton />
+          ) : loansQuery.isError ? (
+            <InlineError message={loansError} onRetry={() => loansQuery.refetch()} />
+          ) : (
+            <StatCard
+              icon={<Wallet className="size-4" />}
+              label="Active Repayments"
+              value={String((loansQuery.data?.data ?? []).filter((loan) => loan.status === "DISBURSED").length)}
+              subtitle={`${formatNaira(
+                recent.reduce((sum, loan) => sum + loan.loanAmount, 0),
+                { compact: true },
+              )} live loan volume`}
+              trend="live"
+            />
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-5">
@@ -185,7 +280,15 @@ function DashboardHome() {
                   <Link to="/loans">View all</Link>
                 </Button>
               </div>
-              {recent.length === 0 ? (
+              {loansQuery.isPending ? (
+                <div className="p-5">
+                  <TableSkeleton />
+                </div>
+              ) : loansQuery.isError ? (
+                <div className="p-5">
+                  <InlineError message={loansError} onRetry={() => loansQuery.refetch()} />
+                </div>
+              ) : recent.length === 0 ? (
                 <EmptyState title="No loans yet" description="Applications will appear here." />
               ) : (
                 <div className="scroll-slim overflow-x-auto">
@@ -249,34 +352,55 @@ function DashboardHome() {
                 <h2 className="text-sm font-semibold">KYC Verification Queue</h2>
                 <span className="num text-xs text-muted-foreground">{queue.length} pending</span>
               </div>
-              <ul className="divide-y divide-border/60">
-                {queue.map((doc) => {
-                  const Icon = docIcons[doc.type];
-                  const urgent = hoursSince(doc.submittedAt) > 24;
-                  return (
-                    <li
-                      key={doc.id}
-                      className={cn(
-                        "flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-elevated/50",
-                        urgent && "border-l-2 border-l-primary",
-                      )}
-                    >
-                      <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-elevated text-primary">
-                        <Icon className="size-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{doc.applicantName}</p>
-                        <p className="num truncate text-[11px] text-muted-foreground">
-                          {doc.type.replace(/_/g, " ")} · {relativeTime(doc.submittedAt)}
-                        </p>
+              {kycQuery.isPending ? (
+                <div className="space-y-3 p-5">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="size-9 rounded-lg" />
+                      <div className="flex-1 space-y-1">
+                        <Skeleton className="h-3 w-32" />
+                        <Skeleton className="h-2 w-24" />
                       </div>
-                      <Button variant="outline" size="sm" asChild>
-                        <Link to="/kyc">Verify</Link>
-                      </Button>
-                    </li>
-                  );
-                })}
-              </ul>
+                      <Skeleton className="h-7 w-16" />
+                    </div>
+                  ))}
+                </div>
+              ) : kycQuery.isError ? (
+                <div className="p-5">
+                  <InlineError message={kycError} onRetry={() => kycQuery.refetch()} />
+                </div>
+              ) : queue.length === 0 ? (
+                <EmptyState title="No pending KYC" description="Verified documents will appear here." />
+              ) : (
+                <ul className="divide-y divide-border/60">
+                  {queue.map((doc) => {
+                    const Icon = docIcons[doc.type];
+                    const urgent = hoursSince(doc.submittedAt) > 24;
+                    return (
+                      <li
+                        key={doc.id}
+                        className={cn(
+                          "flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-elevated/50",
+                          urgent && "border-l-2 border-l-primary",
+                        )}
+                      >
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-elevated text-primary">
+                          <Icon className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{doc.applicantName}</p>
+                          <p className="num truncate text-[11px] text-muted-foreground">
+                            {doc.type.replace(/_/g, " ")} · {relativeTime(doc.submittedAt)}
+                          </p>
+                        </div>
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to="/kyc">Verify</Link>
+                        </Button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </Card>
 
             <Card className="gap-0 rounded-xl border-border bg-card p-5 shadow-[var(--shadow-card)]">
@@ -306,9 +430,9 @@ function DashboardHome() {
                 <h2 className="text-sm font-semibold">AI Insights</h2>
               </div>
               <ul className="mt-3 space-y-2.5 text-sm leading-relaxed text-muted-foreground">
-                <li>3 loans show elevated default risk based on repayment history.</li>
-                <li>KYC approval rate dropped 8% this week.</li>
-                <li>WhatsApp reminders convert 2.3× better than SMS before 9am.</li>
+                <li>{pendingLoanCount} loans are still in pre-approval stages.</li>
+                <li>{queue.length} KYC documents currently need review.</li>
+                <li>{messageVolume} unread applicant messages need follow-up.</li>
               </ul>
               <Link
                 to="/analytics"

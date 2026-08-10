@@ -18,11 +18,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable } from "@/components/ui/data-table";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,8 +38,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { LoanDetailPanel } from "@/components/loans/loan-detail-panel";
+import { useCreateLoanMutation, useUpdateLoanStatusMutation } from "@/hooks/use-lending";
 import { formatNaira, initials, relativeTime } from "@/lib/format";
-import { officers } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { normalizeBackendLoan, useLoansQuery } from "@/lib/backend-api";
 
@@ -74,8 +75,139 @@ const allStatuses: LoanStatus[] = [
   "CLOSED",
 ];
 
+const STATUS_FLOW: LoanStatus[] = [
+  "SUBMITTED",
+  "KYC_PENDING",
+  "KYC_VERIFIED",
+  "CREDIT_CHECK",
+  "APPROVED",
+  "REJECTED",
+  "DISBURSED",
+  "CLOSED",
+];
+
+function CreateLoanDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const createMutation = useCreateLoanMutation();
+  const [form, setForm] = useState({
+    applicantName: "",
+    applicantPhone: "",
+    applicantEmail: "",
+    loanAmount: "",
+    loanPurpose: "",
+    tenureMonths: "",
+  });
+
+  function update(field: keyof typeof form) {
+    return (event: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((prev) => ({ ...prev, [field]: event.target.value }));
+  }
+
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    const input: Parameters<typeof createMutation.mutate>[0] = {
+      applicantName: form.applicantName.trim(),
+      applicantPhone: form.applicantPhone.trim(),
+      loanAmount: Number(form.loanAmount),
+    };
+    const email = form.applicantEmail.trim();
+    if (email) input.applicantEmail = email;
+    const purpose = form.loanPurpose.trim();
+    if (purpose) input.loanPurpose = purpose;
+    if (form.tenureMonths) input.tenureMonths = Number(form.tenureMonths);
+
+    createMutation.mutate(input, {
+      onSuccess: () => {
+        onOpenChange(false);
+        setForm({
+          applicantName: "",
+          applicantPhone: "",
+          applicantEmail: "",
+          loanAmount: "",
+          loanPurpose: "",
+          tenureMonths: "",
+        });
+      },
+    });
+  }
+
+  const valid =
+    form.applicantName.trim() && form.applicantPhone.trim() && Number(form.loanAmount) > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="border-border bg-card">
+        <DialogTitle>New loan application</DialogTitle>
+        <form onSubmit={submit} className="mt-2 space-y-3">
+          <div>
+            <Label className="text-xs text-muted-foreground">Applicant name</Label>
+            <Input
+              value={form.applicantName}
+              onChange={update("applicantName")}
+              className="mt-1"
+              required
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Phone</Label>
+            <Input
+              value={form.applicantPhone}
+              onChange={update("applicantPhone")}
+              className="num mt-1"
+              required
+            />
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Email (optional)</Label>
+            <Input
+              type="email"
+              value={form.applicantEmail}
+              onChange={update("applicantEmail")}
+              className="mt-1"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-muted-foreground">Amount (₦)</Label>
+              <Input
+                inputMode="numeric"
+                value={form.loanAmount}
+                onChange={update("loanAmount")}
+                className="num mt-1"
+                required
+              />
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Tenure (months)</Label>
+              <Input
+                inputMode="numeric"
+                value={form.tenureMonths}
+                onChange={update("tenureMonths")}
+                className="num mt-1"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground">Purpose</Label>
+            <Input value={form.loanPurpose} onChange={update("loanPurpose")} className="mt-1" />
+          </div>
+          <Button type="submit" className="w-full" disabled={!valid || createMutation.isPending}>
+            {createMutation.isPending ? "Creating…" : "Create application"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function LoansPage() {
   const loansQuery = useLoansQuery();
+  const statusMutation = useUpdateLoanStatusMutation();
   const [showFilters, setShowFilters] = useState(false);
   const [selectedStatuses, setSelectedStatuses] = useState<LoanStatus[]>([]);
   const [search, setSearch] = useState("");
@@ -83,10 +215,22 @@ function LoansPage() {
   const [maxAmount, setMaxAmount] = useState("");
   const [officer, setOfficer] = useState("all");
   const [activeLoan, setActiveLoan] = useState<LoanApplication | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<LoanApplication | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const liveLoans = useMemo(
     () => (loansQuery.data?.data ?? []).map(normalizeBackendLoan),
     [loansQuery.data?.data],
+  );
+
+  const officerNames = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          liveLoans
+            .map((loan) => loan.assignedOfficer?.name)
+            .filter((name): name is string => Boolean(name)),
+        ),
+      ),
+    [liveLoans],
   );
 
   const filtered = useMemo(() => {
@@ -194,7 +338,9 @@ function LoansPage() {
         accessorKey: "createdAt",
         header: "Created",
         cell: ({ row }) => (
-          <span className="text-xs text-muted-foreground">{relativeTime(row.original.createdAt)}</span>
+          <span className="text-xs text-muted-foreground">
+            {relativeTime(row.original.createdAt)}
+          </span>
         ),
       },
       {
@@ -213,27 +359,22 @@ function LoansPage() {
                 <Eye className="size-4" />
                 View
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.success(`Editing ${row.original.id}`)}>
-                <Pencil className="size-4" />
-                Edit
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => toast.success(`Status change queued`)}>
-                <RefreshCcw className="size-4" />
-                Change status
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => setPendingDelete(row.original)}
-              >
-                <Trash2 className="size-4" />
-                Delete
-              </DropdownMenuItem>
+              {STATUS_FLOW.filter((status) => status !== row.original.status).map((status) => (
+                <DropdownMenuItem
+                  key={status}
+                  disabled={statusMutation.isPending}
+                  onClick={() => statusMutation.mutate({ id: row.original.id, status })}
+                >
+                  <RefreshCcw className="size-4" />
+                  Set {status.replace(/_/g, " ")}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuContent>
           </DropdownMenu>
         ),
       },
     ],
-    [],
+    [statusMutation],
   );
 
   return (
@@ -255,12 +396,34 @@ function LoansPage() {
             variant="outline"
             size="sm"
             className="hidden md:flex"
-            onClick={() => toast.success("CSV export queued")}
+            onClick={() => {
+              const header = "id,applicantName,applicantPhone,loanAmount,status,createdAt";
+              const rows = filtered.map((loan) =>
+                [
+                  loan.id,
+                  JSON.stringify(loan.applicantName),
+                  loan.applicantPhone,
+                  loan.loanAmount,
+                  loan.status,
+                  loan.createdAt,
+                ].join(","),
+              );
+              const blob = new Blob([[header, ...rows].join("\n")], {
+                type: "text/csv",
+              });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `loans-${new Date().toISOString().slice(0, 10)}.csv`;
+              link.click();
+              URL.revokeObjectURL(url);
+              toast.success("CSV export downloaded");
+            }}
           >
             <Download className="size-4" />
             Export CSV
           </Button>
-          <Button size="sm" onClick={() => toast.success("New application draft created")}>
+          <Button size="sm" onClick={() => setCreateOpen(true)}>
             <Plus className="size-4" />
             <span className="hidden sm:inline">New Application</span>
           </Button>
@@ -336,9 +499,9 @@ function LoansPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All officers</SelectItem>
-                    {officers.map((item) => (
-                      <SelectItem key={item.name} value={item.name}>
-                        {item.name}
+                    {officerNames.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -363,64 +526,75 @@ function LoansPage() {
           </Card>
         ) : null}
 
-        <DataTable
-          data={filtered}
-          columns={columns}
-          pageSize={8}
-          enableSelection
-          onRowClick={(loan) => setActiveLoan(loan)}
-          bulkActions={(count, clear) => (
-            <>
-              <Button
-                size="sm"
-                onClick={() => {
-                  toast.success(`${count} applications approved`);
-                  clear();
-                }}
-              >
-                Approve {count}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-destructive/40 text-destructive hover:bg-destructive/10"
-                onClick={() => {
-                  toast.error(`${count} applications rejected`);
-                  clear();
-                }}
-              >
-                Reject {count}
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => toast.success("Export queued")}>
-                Export
-              </Button>
-            </>
-          )}
-          emptyState={
-            <EmptyState
-              title="No loan applications found"
-              description="Get started by creating your first loan application."
-              actionLabel="Create Loan Application"
-              onAction={() => toast.success("New application draft created")}
-            />
-          }
-        />
+        {loansQuery.isPending ? (
+          <div className="space-y-2 rounded-xl border border-border bg-card p-5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        ) : loansQuery.isError ? (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-border bg-card px-6 py-10 text-center">
+            <p className="text-sm text-muted-foreground">
+              {loansQuery.error instanceof Error
+                ? loansQuery.error.message
+                : "Failed to load loan applications"}
+            </p>
+            <Button className="mt-4" size="sm" onClick={() => loansQuery.refetch()}>
+              Retry
+            </Button>
+          </div>
+        ) : (
+          <DataTable
+            data={filtered}
+            columns={columns}
+            pageSize={8}
+            enableSelection
+            onRowClick={(loan) => setActiveLoan(loan)}
+            bulkActions={(count, clear, rows) => (
+              <>
+                <Button
+                  size="sm"
+                  disabled={statusMutation.isPending}
+                  onClick={() => {
+                    for (const row of rows) {
+                      statusMutation.mutate({ id: row.id, status: "APPROVED" });
+                    }
+                    clear();
+                  }}
+                >
+                  Approve {count}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                  disabled={statusMutation.isPending}
+                  onClick={() => {
+                    for (const row of rows) {
+                      statusMutation.mutate({ id: row.id, status: "REJECTED" });
+                    }
+                    clear();
+                  }}
+                >
+                  Reject {count}
+                </Button>
+              </>
+            )}
+            emptyState={
+              <EmptyState
+                title="No loan applications found"
+                description="Get started by creating your first loan application."
+                actionLabel="Create Loan Application"
+                onAction={() => setCreateOpen(true)}
+              />
+            }
+          />
+        )}
       </div>
 
-      <LoanDetailPanel loan={activeLoan} onClose={() => setActiveLoan(null)} />
+      <CreateLoanDialog open={createOpen} onOpenChange={setCreateOpen} />
 
-      <ConfirmDialog
-        open={Boolean(pendingDelete)}
-        onOpenChange={(open) => (!open ? setPendingDelete(null) : undefined)}
-        title="Delete loan application?"
-        description={`${pendingDelete?.id ?? ""} will be permanently removed from the portfolio.`}
-        confirmLabel="Delete"
-        destructive
-        onConfirm={() => {
-          toast.error(`${pendingDelete?.id} deleted`);
-          setPendingDelete(null);
-        }}
-      />
+      <LoanDetailPanel loan={activeLoan} onClose={() => setActiveLoan(null)} />
     </AppShell>
   );
 }
