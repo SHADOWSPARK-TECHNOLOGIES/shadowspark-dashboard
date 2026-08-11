@@ -93,6 +93,8 @@ async function handleProxyRequest(request: Request): Promise<Response> {
   for (const header of HOP_BY_HOP_HEADERS) {
     responseHeaders.delete(header);
   }
+  responseHeaders.delete("content-encoding");
+  responseHeaders.delete("content-length");
 
   return new Response(upstream.body, {
     status: upstream.status,
