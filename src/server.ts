@@ -88,17 +88,16 @@ async function handleProxyRequest(request: Request): Promise<Response> {
     init.body = await request.arrayBuffer();
   }
 
-  const upstream = await fetch(backendUrl, init);
-  const responseHeaders = new Headers(upstream.headers);
+  const upstreamRes = await fetch(backendUrl, init);
+  const responseHeaders = new Headers(upstreamRes.headers);
   for (const header of HOP_BY_HOP_HEADERS) {
     responseHeaders.delete(header);
   }
   responseHeaders.delete("content-encoding");
   responseHeaders.delete("content-length");
 
-  return new Response(upstream.body, {
-    status: upstream.status,
-    statusText: upstream.statusText,
+  return new Response(upstreamRes.body, {
+    status: upstreamRes.status,
     headers: responseHeaders,
   });
 }
