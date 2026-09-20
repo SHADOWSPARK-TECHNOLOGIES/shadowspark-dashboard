@@ -9,7 +9,7 @@ type ServerEntry = {
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
-const DEFAULT_BACKEND_URL = "https://shadowspark-production-one.vercel.app";
+const DEFAULT_BACKEND_URL = "https://shadowspark-tech.com";
 const PROXY_PREFIX = "/api/proxy";
 
 async function getServerEntry(): Promise<ServerEntry> {
